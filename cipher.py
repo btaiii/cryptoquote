@@ -5,7 +5,7 @@ WORD_FILE = '/usr/share/dict/american-english'
 # DEBUG = True
 DEBUG = False
 LONGEST_WORD = 23
-UNENCRYPTED_CHARS = "' .-,;"
+UNENCRYPTED_CHARS = "' .-,;?"
 TARGET_STRING = string.ascii_lowercase + UNENCRYPTED_CHARS
 TARGET_SET = set( TARGET_STRING )
 NUM_CHARACTERS = len(TARGET_STRING)
@@ -53,7 +53,7 @@ class Node(object):
                 
     def potentialChildIndex(self, index, cipherKey, charToDecrypt):
         # no children with this index
-        if self.children[index] == None: return False
+        if self.children[index] is None: return False
         # child already assigned to another letter
         if cipherKey[index] != NO_TRANSLATION: return False
         # a letter can't represent itself
@@ -65,7 +65,7 @@ class Node(object):
         
         crackedIndex = cipherKey.find(word[0])
         if crackedIndex >= 0:
-            if self.children[crackedIndex] != None:
+            if self.children[crackedIndex] is not None:
                 potentialChildIndices = [ crackedIndex ]
         else:
             potentialChildIndices = \
@@ -123,10 +123,12 @@ class Cipher(object):
     
     def __init__(self, phrase):
         Cipher.resetCipherKey()
-        self.words = re.sub(r'[,.;]','',phrase).lower().split()
+        self.words = re.sub(r'[,.;:?-]','',phrase).lower().split()
+        # dramatic improvement by starting with longest words!!
+        self.words.sort(key = lambda s: -len(s))
         # http://stackoverflow.com/questions/12791501/python-initializing-a-list-of-lists
         # [ [] ] * len(self.words) gives a list of references to the same list
-        self.decisionPoints = [[] for _ in range(len(self.words))]
+#         self.decisionPoints = [[] for _ in range(len(self.words))]
         
     def crack(self):
         word = self.words[0]
@@ -146,12 +148,11 @@ class Cipher(object):
         
     @staticmethod
     def encrypt(message, cipherKey):
-        return ''.join([TARGET_STRING[cipherKey.find(char)] for char in message])
+        return ''.join([cipherKey[TARGET_STRING.find(char)] for char in message.lower()])
     
     @staticmethod
-    def decrypt(word, cipherKey):
-        result = [Cipher.decryptChar(char, cipherKey) for char in word]
-        return word, ''.join(result)
+    def decrypt(message, cipherKey):
+        return ''.join([TARGET_STRING[cipherKey.find(char)] for char in message.lower()])
     
     @staticmethod
     def decryptChar(char, cipherKey):
@@ -169,8 +170,8 @@ class Cipher(object):
             word = line[:-1]
             if len(word) == 1 and word[0] != 'a' and word[0] != 'i': 
                 continue
-            else:
-                if not word[0].islower(): continue
+#             else:
+#                 if not word[0].islower(): continue
         #     print(len(word))
             addWordsToTries(word)
             if maxWords and i >= maxWords: 
