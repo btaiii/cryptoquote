@@ -1,8 +1,11 @@
 import string
+import re
 
-DEBUG = True
+WORD_FILE = '/usr/share/dict/american-english'
+# DEBUG = True
+DEBUG = False
 LONGEST_WORD = 23
-UNENCRYPTED_CHARS = "' .-"
+UNENCRYPTED_CHARS = "' .-,;"
 TARGET_STRING = string.ascii_lowercase + UNENCRYPTED_CHARS
 TARGET_SET = set( TARGET_STRING )
 NUM_CHARACTERS = len(TARGET_STRING)
@@ -12,16 +15,13 @@ BLANK_CIPHER_KEY = NO_TRANSLATION * (NUM_ENCRYPTED_CHARACTERS) + UNENCRYPTED_CHA
 # LETTER_FREQUENCIES = 'etaoinshrdlcumwfgypbvkjxqz'
     
 def addWordsToTries(words):
+    ''' Add a space-delimited sequence of words to the trie structure; apostrophes allowed '''
     for word in words.split():
         tries[len(word)-1].add(word)
 
 def addWordToTries(word):
     tries[len(word)-1].add(word)
     
-def attemptCracking(word):
-    result = tries[len(word)-1].crack(word, [ ], [ [] ])
-    print('word: ' + word + ', result: ' + str(result))
-                
 class Node(object):
     def __init__(self, charPath):
         self.children = [None] * NUM_CHARACTERS
@@ -51,50 +51,48 @@ class Node(object):
             else:
                 childNode.walk(wordSoFarWithChar)
                 
+    def potentialChildIndex(self, index, cipherKey, charToDecrypt):
+        # no children with this index
+        if self.children[index] == None: return False
+        # child already assigned to another letter
+        if cipherKey[index] != NO_TRANSLATION: return False
+        # a letter can't represent itself
+        if charToDecrypt == TARGET_STRING[index]: return False
+        return True
+    
     def crack(self, word, words, cipherKey):
-        crackedChar = Cipher.decryptChar(word[0], cipherKey)
-        if crackedChar != -1:       # this character has been tentatively cracked
-            index = Node.indexOfChar(crackedChar)
-            if len(word) == 1:      # end of word ... is this word in the trie?
-                if self.children[index] == None:
-                    return False
-                else:
-                    if len(words) == 0:
-                        return True
-                    else:
-                        if tries[len(words[0])-1].crack(words[0], words[1:], cipherKey):
-                            return True
-            if self.children[index] == None:
-                return False
-            return self.children[index].crack(word[1:], words, cipherKey)
-        else:                       # this character has no Cracking yet
+        potentialChildIndices = []
+        
+        crackedIndex = cipherKey.find(word[0])
+        if crackedIndex >= 0:
+            if self.children[crackedIndex] != None:
+                potentialChildIndices = [ crackedIndex ]
+        else:
+            potentialChildIndices = \
+                [index for index in range(len(self.children)) if self.potentialChildIndex(index, cipherKey, word[0])]
+        
+        for index in potentialChildIndices:
+            newCipherKey = cipherKey[:index] + word[0] + cipherKey[index+1:]
             if DEBUG:
-                print("Selecting a translation for " + word[0], end=': ')
-            for index in range(NUM_CHARACTERS):
-            # choose a letter that is a potential match and doesn't already have a mapping
-# TODO a letter can't represent itself
-                if self.children[index] != None and \
-                    cipherKey[index] == NO_TRANSLATION and cipherKey.find(word[0]) == -1:
-                    cipherKey = cipherKey[:index] + word[0] + cipherKey[index+1:]
-                    if DEBUG:
-#                         print('Decisions: ' + str(decisionPoints))
-                        print(TARGET_STRING[index] + ' |' + cipherKey + '|')
-                    if len(word) == 1:
-                        if len(words) == 0:
-                            return True
-                        else:
-                            if tries[len(words[0])-1].crack(words[0], words[1:], cipherKey):
-                                return True
-                    if self.children[index] == None:
-                        return False
-                    print(self.charPath, self.children[index], word, words, cipherKey)
-                    if self.children[index].crack(word[1:], words, cipherKey): 
-                        return True
-            if DEBUG:
-                print('No possible translation')
-            # no further letters available to try
-            return False
-            
+                print(word[0] + '>>' + TARGET_STRING[index] + ' |' + newCipherKey + '|')
+#                 print(self.charPath, word, words, cipherKey)
+            if len(word) == 1:
+                if len(words) == 0:
+                    Cipher.cipherKey = newCipherKey
+                    return True    # BASE CASE: all done ... no letters left
+                elif tries[len(words[0])-1].crack(words[0], words[1:], newCipherKey):
+                    return True
+                else:  # try next letter
+                    continue
+            if type(self.children[index]) == str:
+                print('ERROR --->' + self.children[index])
+            if self.children[index].crack(word[1:], words, newCipherKey): 
+                return True
+        if DEBUG:
+            print('No possible translation')
+        # BASE CASE: no further letters available to try
+        return False
+    
     @staticmethod
     def indexOfChar(char):
         if char.islower():   # an optimization
@@ -125,18 +123,16 @@ class Cipher(object):
     
     def __init__(self, phrase):
         Cipher.resetCipherKey()
-        self.words = phrase.lower().split()
+        self.words = re.sub(r'[,.;]','',phrase).lower().split()
         # http://stackoverflow.com/questions/12791501/python-initializing-a-list-of-lists
         # [ [] ] * len(self.words) gives a list of references to the same list
         self.decisionPoints = [[] for _ in range(len(self.words))]
-        
-    def crackPhrase(self):
-        self.crack()
         
     def crack(self):
         word = self.words[0]
         result = tries[len(word)-1].crack(word, self.words[1:], BLANK_CIPHER_KEY)
         print(result)
+        return result
 #         print('word: ' + word + ', result: ' + str(result))
         
     @staticmethod
@@ -147,6 +143,10 @@ class Cipher(object):
     @staticmethod
     def is_valid(word):
         return set(word).issubset(TARGET_SET)
+        
+    @staticmethod
+    def encrypt(message, cipherKey):
+        return ''.join([TARGET_STRING[cipherKey.find(char)] for char in message])
     
     @staticmethod
     def decrypt(word, cipherKey):
@@ -158,5 +158,25 @@ class Cipher(object):
         crackedIndex = cipherKey.find(char)
         if crackedIndex == -1: return -1
         return TARGET_STRING[crackedIndex]
+    
+    @staticmethod
+    def loadWords(maxWords = None):
+        ''' load words from WORD_FILE into trie structure '''
+        file = open(WORD_FILE , 'r')
+        i = 0
+        for line in file:
+        #     print(line,end='')
+            word = line[:-1]
+            if len(word) == 1 and word[0] != 'a' and word[0] != 'i': 
+                continue
+            else:
+                if not word[0].islower(): continue
+        #     print(len(word))
+            addWordsToTries(word)
+            if maxWords and i >= maxWords: 
+                print("Bad word: " + word)
+                break
+            i += 1
+        print('%d words loaded' % i)
     
 tries = [Trie(i+1) for i in range(LONGEST_WORD)]
